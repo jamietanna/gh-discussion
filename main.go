@@ -35,7 +35,7 @@ func main() {
 					},
 					&cli.BoolFlag{
 						Name:  "dry-run",
-						Value: true,
+						Value: false,
 						Usage: "Whether to take user input, but not submit via the API",
 					},
 				},
