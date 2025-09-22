@@ -29,8 +29,8 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, stderr *os.File) error {
-	repoOverride := flag.String(
-		"repo", "", "Specify a repository. If omitted, uses current repository")
+	repoOverride := flag.String("repo", "", "Specify a repository. If omitted, uses current repository")
+	isDryRun := flag.Bool("dry-run", true, "Whether to simulate **??**, but not submit **??**") // TODO
 	flag.Parse()
 
 	var repo repository.Repository
@@ -49,13 +49,7 @@ func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, st
 		return fmt.Errorf("failed to determine a repository, found: %v/%v/%v", repo.Host, repo.Owner, repo.Name)
 	}
 
-	fmt.Printf(
-		"Going to search discussions in %s/%s\n", repo.Owner, repo.Name)
-
-	// restClient, err := api.DefaultHTTPClient()
-	// if err != nil {
-	// 	return fmt.Errorf("failed to construct REST client: %w", err)
-	// }
+	fmt.Printf("Looking for discussion category forms in %s/%s\n", repo.Owner, repo.Name)
 
 	gqlClient, err := api.DefaultGraphQLClient()
 	if err != nil {
@@ -67,28 +61,11 @@ func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, st
 		return fmt.Errorf("failed to construct HTTP client: %w", err)
 	}
 
-	//
-	//
-	// fmt.Printf("d: %v\n", d)
-	//
-	// for _, file := range d {
-	// 	// file.
-	// }
-	//
-	//
-	// categories := []struct{
-	// 	Name string
-	// 	Description string
-	// 	Slug string
-	// }
-
 	dt := DiscussionTemplate_{
 		httpClient: httpClient,
 		gqlClient:  gqlClient,
 		repo:       repo,
 	}
-
-	// TODO Repository ID via GraphQL
 
 	categories, repositoryID, err := dt.Discover(ctx)
 	if err != nil {
@@ -180,6 +157,17 @@ func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, st
 	// 	return err // TODO
 	// }
 
+	var discussionTitle string
+
+	q := survey.Input{
+		Message: "Discussion title",
+	}
+
+	err = survey.AskOne(&q, &discussionTitle, survey.WithValidator(survey.Required))
+	if err != nil {
+		return err
+	}
+
 	var discussionBody string
 
 	for _, item := range tpl.Body {
@@ -215,8 +203,19 @@ func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, st
 		discussionBody += "### " + label + "\n\n" + result + "\n\n"
 	}
 
-	fmt.Printf("%s\n", discussionBody)
-	// HACK
+	categoryID := "TODO"
+
+	if isDryRun == nil || *isDryRun {
+		fmt.Printf("🧪🧪🧪🧪🧪🧪🧪🧪\n")
+		fmt.Printf("Would attempt to create a discussion with repositoryID=%v categoryID=%v len(body)=%d title=%v\n", repositoryID, categoryID, len(discussionBody), discussionTitle)
+		fmt.Println("To actually **??**, use `-dry-run false`")
+
+		fmt.Printf("%s\n", discussionBody)
+	} else {
+		// TODO
+		// url, err := dt.CreateDiscussion(ctx, repositoryID, requiredcategoryID, discussionBody, title)
+		// TODO output URL
+	}
 
 	return nil
 }
