@@ -58,6 +58,7 @@ type Dropdown struct {
 	ID         string             `yaml:"id"`
 	Attributes DropdownAttributes `yaml:"attributes"`
 }
+
 type DropdownAttributes struct {
 	Label   string   `yaml:"label"`
 	Options []string `yaml:"options"`
@@ -68,6 +69,7 @@ type Input struct {
 	ID         string          `yaml:"id"`
 	Attributes InputAttributes `yaml:"attributes"`
 }
+
 type InputAttributes struct {
 	Label string `yaml:"label"`
 }
@@ -77,6 +79,7 @@ type Textarea struct {
 	ID         string             `yaml:"id"`
 	Attributes TextareaAttributes `yaml:"attributes"`
 }
+
 type TextareaAttributes struct {
 	Label       string `yaml:"label"`
 	Description string `yaml:"description"`

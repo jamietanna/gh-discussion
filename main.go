@@ -4,27 +4,31 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"gopkg.in/yaml.v3"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/AlecAivazis/survey/v2"
+	"github.com/cli/go-gh/v2/pkg/api"
 	"github.com/cli/go-gh/v2/pkg/repository"
+	"github.com/google/go-github/v74/github"
 	"github.com/jamietanna/gh-discussion/internal/discussion"
 	"github.com/jamietanna/gh-discussion/internal/discussionform"
 )
 
 func main() {
-	if err := run(os.Args, os.Stdin, os.Stdout, os.Stderr); err != nil {
+	ctx := context.Background()
+
+	if err := run(ctx, os.Args, os.Stdin, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "gh-discussion failed: %s\n", err.Error())
 		os.Exit(1)
 	}
 }
 
-func run(args []string, stdin *os.File, stdout *os.File, stderr *os.File) error {
-	_ = context.Background()
-
+func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, stderr *os.File) error {
 	repoOverride := flag.String(
 		"repo", "", "Specify a repository. If omitted, uses current repository")
 	flag.Parse()
@@ -48,20 +52,22 @@ func run(args []string, stdin *os.File, stdout *os.File, stderr *os.File) error 
 	fmt.Printf(
 		"Going to search discussions in %s/%s\n", repo.Owner, repo.Name)
 
-	// client, err := api.DefaultHTTPClient()
+	// restClient, err := api.DefaultHTTPClient()
 	// if err != nil {
 	// 	return fmt.Errorf("failed to construct REST client: %w", err)
 	// }
+
+	gqlClient, err := api.DefaultGraphQLClient()
+	if err != nil {
+		return fmt.Errorf("failed to construct GraphQL client: %w", err)
+	}
+
+	httpClient, err := api.DefaultHTTPClient()
+	if err != nil {
+		return fmt.Errorf("failed to construct HTTP client: %w", err)
+	}
+
 	//
-	// gClient := github.NewClient(client)
-	//
-	// _, d, resp, err := gClient.Repositories.GetContents(ctx, repo.Owner, repo.Name, ".github/DISCUSSION_TEMPLATE", nil)
-	// if resp.StatusCode == http.StatusNotFound {
-	// 	// TODO no template
-	// 	return fmt.Errorf("TODO: no template")
-	// } else if err != nil {
-	// 	return fmt.Errorf("failed to TODO: %w", err)
-	// }
 	//
 	// fmt.Printf("d: %v\n", d)
 	//
@@ -76,22 +82,62 @@ func run(args []string, stdin *os.File, stdout *os.File, stderr *os.File) error 
 	// 	Slug string
 	// }
 
-	dt := DiscussionTemplate_{}
+	dt := DiscussionTemplate_{
+		httpClient: httpClient,
+		gqlClient:  gqlClient,
+		repo:       repo,
+	}
 
-	categories, err := dt.Discover()
+	// TODO Repository ID via GraphQL
+
+	categories, repositoryID, err := dt.Discover(ctx)
 	if err != nil {
 		return fmt.Errorf("TODO: %w", err)
 	}
 
-	slices.SortFunc(categories, func(a, b discussion.Category) int {
-		return strings.Compare(a.Slug, b.Slug)
-	})
+	fmt.Printf("categories: %v\n", categories)
 
-	var options []string
-	for _, c := range categories {
-		options = append(options, c.Name+" ("+c.Description+")")
+	fmt.Printf("repositoryID: %v\n", repositoryID) // TODO
+
+	prompt, err := CategoriesToPrompt(categories)
+	if err != nil {
+		return fmt.Errorf("TODO: %w", err)
 	}
 
+	var discussionSlug string
+	err = survey.AskOne(prompt, &discussionSlug)
+	if err != nil {
+		return fmt.Errorf("TODO: %w", err)
+	}
+
+	fmt.Printf("discussionSlug: %v\n", discussionSlug)
+
+	tpl, err := dt.RetrieveTemplate(ctx, discussionSlug)
+	if err != nil {
+		return fmt.Errorf("TODO: %w", err)
+	}
+
+	// // TODO wrap in function
+	//
+	// var options []string
+	// for _, c := range categories {
+	// 	options = append(options, c.Name+" ("+c.Description+")")
+	// }
+	//
+	// templateSelect := survey.Select{
+	// 	Message: "Choose TODO",
+	// 	Options: options,
+	// }
+	//
+	// var slug string
+	//
+	// TODO wrap in function
+
+	// var options []string
+	// for _, c := range categories {
+	// 	options = append(options, c.Name+" ("+c.Description+")")
+	// }
+	//
 	// 	prompt := survey.Editor{
 	// 		Message: "Please tell us more about your question or problem",
 	// 		Help: `Remember to [follow these guidelines](https://github.com/renovatebot/renovate/blob/main/docs/development/help-us-help-you.md) for maximum effectiveness.
@@ -122,16 +168,19 @@ func run(args []string, stdin *os.File, stdout *os.File, stderr *os.File) error 
 	//
 	// pr.Input
 
-	// HACK
-	data, err := os.ReadFile("../renovate/.worktrees/HEAD/.github/DISCUSSION_TEMPLATE/request-help.yml")
-	if err != nil {
-		return err
-	}
+	// // HACK
+	// data, err := os.ReadFile("../renovate/.worktrees/HEAD/.github/DISCUSSION_TEMPLATE/request-help.yml")
+	// // data, err := os.ReadFile("../renovate/.worktrees/HEAD/.github/DISCUSSION_TEMPLATE/request-help.yml")
+	// if err != nil {
+	// 	return err
+	// }
+	//
+	// var tpl discussionform.Template
+	// if err := yaml.Unmarshal(data, &tpl); err != nil {
+	// 	return err // TODO
+	// }
 
-	var tpl discussionform.Template
-	if err := yaml.Unmarshal(data, &tpl); err != nil {
-		return err // TODO
-	}
+	var discussionBody string
 
 	for _, item := range tpl.Body {
 		// switch item.Type {
@@ -150,60 +199,167 @@ func run(args []string, stdin *os.File, stdout *os.File, stderr *os.File) error 
 		// 	fmt.Printf("item.Type: %v\n", item.Type)
 		// }
 
-		q, askOpts, err := BodyItemToQuestion(item)
+		q, label, askOpts, err := BodyItemToPromptAndOpts(item)
 		if err != nil {
 			return err
 		}
 
-		m := make(map[string]any)
-		err = survey.AskOne(q, &m, askOpts...)
+		var result string
+		err = survey.AskOne(q, &result, askOpts...)
 		if err != nil {
 			return err
 		}
+
+		fmt.Printf("result: %v\n", result)
+
+		discussionBody += "### " + label + "\n\n" + result + "\n\n"
 	}
 
+	fmt.Printf("%s\n", discussionBody)
 	// HACK
 
 	return nil
 }
 
-type DiscussionTemplate_ struct{}
+type DiscussionTemplate_ struct {
+	httpClient *http.Client
+	gqlClient  *api.GraphQLClient
+	repo       repository.Repository
+}
 
-func (dt *DiscussionTemplate_) Discover() ([]discussion.Category, error) {
-	return []discussion.Category{
-		{
-			Name:        "Request Help",
-			Description: "Ask here for help getting your config right or if you think you've found a bug",
-			Slug:        "request-help",
-		},
-		{
-			Name:        "Suggest an Idea",
-			Description: "Start here if you have a feature request or idea for Renovate",
-			Slug:        "suggest-an-idea",
-		},
-	}, nil
+type discoverQueryResponse struct {
+	Repository struct {
+		ID                   string
+		DiscussionCategories struct {
+			Edges []struct {
+				Node struct {
+					Name        string
+					Description string
+					ID          string
+					Slug        string
+				}
+			}
+		}
+	}
+}
+
+func (dt *DiscussionTemplate_) Discover(ctx context.Context) ([]discussion.Category, string, error) {
+	query := `query ($owner: String!, $repo: String!) {
+  repository(owner: $owner, name: $repo) {
+    id
+    discussionCategories(first: 25) {
+      edges {
+        node {
+          name
+          description
+          id
+          slug
+        }
+      }
+    }
+  }
+}`
+
+	variables := map[string]any{
+		"owner": dt.repo.Owner,
+		"repo":  dt.repo.Name,
+	}
+
+	var resp discoverQueryResponse
+
+	err := dt.gqlClient.DoWithContext(ctx, query, variables, &resp)
+	if err != nil {
+		return nil, "", fmt.Errorf("TODO: %w", err)
+	}
+
+	fmt.Printf("resp: %v\n", resp)
+
+	if len(resp.Repository.DiscussionCategories.Edges) == 0 {
+		return nil, "", fmt.Errorf("TODO: None")
+	}
+
+	var categories []discussion.Category
+	for _, category := range resp.Repository.DiscussionCategories.Edges {
+		categories = append(categories, discussion.Category{
+			ID:          category.Node.ID,
+			Name:        category.Node.Name,
+			Description: category.Node.Description,
+			Slug:        category.Node.Slug,
+		})
+	}
+
+	slices.SortFunc(categories, func(a, b discussion.Category) int {
+		return strings.Compare(a.Slug, b.Slug)
+	})
+
+	return categories, resp.Repository.ID, nil
+}
+
+func (dt *DiscussionTemplate_) RetrieveTemplate(ctx context.Context, slug string) (discussionform.Template, error) {
+	gClient := github.NewClient(dt.httpClient)
+
+	f, _, resp, err := gClient.Repositories.GetContents(ctx, dt.repo.Owner, dt.repo.Name, ".github/DISCUSSION_TEMPLATE/"+slug+".yml", nil)
+	if resp.StatusCode == http.StatusNotFound {
+		// TODO no template
+		return discussionform.Template{}, fmt.Errorf("TODO: no template")
+	} else if err != nil {
+		return discussionform.Template{}, fmt.Errorf("failed to TODO: %w", err)
+	}
+
+	body, err := f.GetContent()
+	if err != nil {
+		return discussionform.Template{}, fmt.Errorf("failed to TODO: %w", err)
+	}
+
+	var tpl discussionform.Template
+	if err := yaml.Unmarshal([]byte(body), &tpl); err != nil {
+		return discussionform.Template{}, err // TODO
+	}
+
+	return tpl, nil
 }
 
 func (dt *DiscussionTemplate_) Get___(slug string) []any {
 	return nil
 }
 
-// For more examples of using go-gh, see:
-// https://github.com/cli/go-gh/blob/trunk/example_gh_test.go
+func CategoriesToPrompt(categories []discussion.Category) (survey.Prompt, error) {
+	slugToPretty := make(map[string]string)
 
-func BodyItemToQuestion(item discussionform.BodyItem) (survey.Prompt, []survey.AskOpt, error) {
-	var askOpts []survey.AskOpt
+	for _, category := range categories {
+		slugToPretty[category.Slug] = category.Description
+	}
 
-	ensureRequired := func(item discussionform.BodyItem) {
-		fmt.Printf("item.Validations: %v\n", item.Validations)
+	options := make([]string, 0, len(slugToPretty))
+	for k := range slugToPretty {
+		options = append(options, k)
+	}
+	slices.Sort(options)
+
+	return &survey.Select{
+		Message: "TODO", // TODO
+		Options: options,
+		Description: func(value string, _ int) string {
+			return slugToPretty[value]
+		},
+	}, nil
+}
+
+func BodyItemToPromptAndOpts(item discussionform.BodyItem) (survey.Prompt, string, []survey.AskOpt, error) {
+	var label string
+
+	ensureRequired := func(item discussionform.BodyItem) []survey.AskOpt {
+		var askOpts []survey.AskOpt
 		if isRequired, ok := item.Validations["required"]; ok && isRequired {
 			askOpts = append(askOpts, survey.WithValidator(survey.Required))
 		}
+		return askOpts
 	}
 
 	switch t := item.Item.(type) {
 	case discussionform.Dropdown:
-		ensureRequired(item)
+		label = t.Attributes.Label
+		askOpts := ensureRequired(item)
 
 		if !slices.Contains(t.Attributes.Options, "None") {
 			t.Attributes.Options = append(t.Attributes.Options, "None")
@@ -213,17 +369,19 @@ func BodyItemToQuestion(item discussionform.BodyItem) (survey.Prompt, []survey.A
 			Message: t.Attributes.Label,
 			Options: t.Attributes.Options,
 			Default: "None",
-		}, askOpts, nil
+		}, label, askOpts, nil
 
 	case discussionform.Input:
-		ensureRequired(item)
+		label = t.Attributes.Label
+		askOpts := ensureRequired(item)
 
 		return &survey.Input{
 			Message: t.Attributes.Label,
-		}, askOpts, nil
+		}, label, askOpts, nil
 
 	case discussionform.Textarea:
-		ensureRequired(item)
+		label = t.Attributes.Label
+		askOpts := ensureRequired(item)
 
 		pr := survey.Editor{
 			Message:  t.Attributes.Label,
@@ -237,11 +395,9 @@ func BodyItemToQuestion(item discussionform.BodyItem) (survey.Prompt, []survey.A
 			pr.HideDefault = true
 		}
 
-		// Example: set an AskOpt for Textarea
-
-		return &pr, askOpts, nil
+		return &pr, label, askOpts, nil
 
 	default:
-		return nil, nil, fmt.Errorf("unexpected `type: %v` provided to BodyItemToQuestion", item.Type)
+		return nil, "", nil, fmt.Errorf("unexpected `type: %v` provided to BodyItemToQuestion", item.Type)
 	}
 }
