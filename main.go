@@ -61,7 +61,7 @@ func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, st
 		return fmt.Errorf("failed to construct HTTP client: %w", err)
 	}
 
-	dt := DiscussionTemplate_{
+	dt := DiscussionTemplateClient{
 		httpClient: httpClient,
 		gqlClient:  gqlClient,
 		repo:       repo,
@@ -205,6 +205,16 @@ func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, st
 
 	categoryID := "TODO"
 
+	for _, category := range categories {
+		if category.Slug == discussionSlug {
+			categoryID = category.ID
+			break
+		}
+	}
+	if categoryID == "TODO" {
+		return fmt.Errorf("TODO: NO CAT")
+	}
+
 	if isDryRun == nil || *isDryRun {
 		fmt.Printf("🧪🧪🧪🧪🧪🧪🧪🧪\n")
 		fmt.Printf("Would attempt to create a discussion with repositoryID=%v categoryID=%v len(body)=%d title=%v\n", repositoryID, categoryID, len(discussionBody), discussionTitle)
@@ -212,15 +222,19 @@ func run(ctx context.Context, args []string, stdin *os.File, stdout *os.File, st
 
 		fmt.Printf("%s\n", discussionBody)
 	} else {
-		// TODO
-		// url, err := dt.CreateDiscussion(ctx, repositoryID, requiredcategoryID, discussionBody, title)
-		// TODO output URL
+		url, err := dt.CreateDiscussion(ctx, repositoryID, categoryID, discussionBody, discussionTitle)
+
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("Successfully created %s\n", url)
 	}
 
 	return nil
 }
 
-type DiscussionTemplate_ struct {
+type DiscussionTemplateClient struct {
 	httpClient *http.Client
 	gqlClient  *api.GraphQLClient
 	repo       repository.Repository
@@ -242,7 +256,7 @@ type discoverQueryResponse struct {
 	}
 }
 
-func (dt *DiscussionTemplate_) Discover(ctx context.Context) ([]discussion.Category, string, error) {
+func (dt *DiscussionTemplateClient) Discover(ctx context.Context) ([]discussion.Category, string, error) {
 	query := `query ($owner: String!, $repo: String!) {
   repository(owner: $owner, name: $repo) {
     id
@@ -294,7 +308,7 @@ func (dt *DiscussionTemplate_) Discover(ctx context.Context) ([]discussion.Categ
 	return categories, resp.Repository.ID, nil
 }
 
-func (dt *DiscussionTemplate_) RetrieveTemplate(ctx context.Context, slug string) (discussionform.Template, error) {
+func (dt *DiscussionTemplateClient) RetrieveTemplate(ctx context.Context, slug string) (discussionform.Template, error) {
 	gClient := github.NewClient(dt.httpClient)
 
 	f, _, resp, err := gClient.Repositories.GetContents(ctx, dt.repo.Owner, dt.repo.Name, ".github/DISCUSSION_TEMPLATE/"+slug+".yml", nil)
@@ -318,8 +332,60 @@ func (dt *DiscussionTemplate_) RetrieveTemplate(ctx context.Context, slug string
 	return tpl, nil
 }
 
-func (dt *DiscussionTemplate_) Get___(slug string) []any {
-	return nil
+type createDiscussionResponse struct {
+	CreateDiscussion struct {
+		Discussion struct {
+			URL string
+		}
+	}
+}
+
+func (dt *DiscussionTemplateClient) CreateDiscussion(ctx context.Context, repositoryID string, categoryID string, discussionBody string, discussionTitle string) (string, error) {
+	query := `
+mutation CreateDiscussion(
+  $repositoryId: ID!
+  $categoryId: ID!
+  $body: String!
+  $title: String!
+) {
+  createDiscussion(
+    input: {
+      repositoryId: $repositoryId
+      categoryId: $categoryId
+      body: $body
+      title: $title
+    }
+  ) {
+    discussion {
+      url
+    }
+  }
+}
+`
+	variables := map[string]any{
+		"repositoryId": repositoryID,
+		"categoryId":   categoryID,
+		"body":         discussionBody,
+		"title":        discussionTitle,
+	}
+
+	var resp createDiscussionResponse
+
+	err := dt.gqlClient.DoWithContext(ctx, query, variables, &resp)
+	if err != nil {
+		return "", fmt.Errorf("TODO: %w", err)
+	}
+
+	fmt.Printf("resp: %v\n", resp)
+
+	if resp.CreateDiscussion.Discussion.URL == "" {
+		return "", fmt.Errorf("TODO empty")
+	}
+
+	// TODO: Implement the logic to create a discussion
+	// This is a stub implementation
+	// Replace with actual API call or logic as needed
+	return resp.CreateDiscussion.Discussion.URL, nil
 }
 
 func CategoriesToPrompt(categories []discussion.Category) (survey.Prompt, error) {
