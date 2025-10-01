@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -255,6 +256,8 @@ func (dt *DiscussionTemplateClient) Discover(ctx context.Context) ([]discussion.
 	return categories, resp.Repository.ID, nil
 }
 
+var errDiscussionTemplateNotFound = errors.New("no Discussion template could be found")
+
 func (dt *DiscussionTemplateClient) RetrieveTemplate(ctx context.Context, slug string) (discussionform.Template, error) {
 	gClient := github.NewClient(dt.httpClient)
 
@@ -262,7 +265,7 @@ func (dt *DiscussionTemplateClient) RetrieveTemplate(ctx context.Context, slug s
 
 	f, _, resp, err := gClient.Repositories.GetContents(ctx, dt.repo.Owner, dt.repo.Name, path, nil)
 	if resp.StatusCode == http.StatusNotFound {
-		return discussionform.Template{}, fmt.Errorf("no template could be found at path %s for repository %v/%v", path, dt.repo.Owner, dt.repo.Name)
+		return discussionform.Template{}, fmt.Errorf("no template could be found at path %s for repository %v/%v: %w", path, dt.repo.Owner, dt.repo.Name, errDiscussionTemplateNotFound)
 	} else if err != nil {
 		return discussionform.Template{}, fmt.Errorf("failed to look up template at path %s for repository %v/%v: %w", path, dt.repo.Owner, dt.repo.Name, err)
 	}
