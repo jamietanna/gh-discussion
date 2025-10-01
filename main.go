@@ -135,7 +135,9 @@ func handleCreate(c *cli.Context) error {
 
 	tpl, err := dt.RetrieveTemplate(c.Context, discussionSlug)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve Discussion category form for slug %v: %w", discussionSlug, err)
+		if !errors.Is(err, errDiscussionTemplateNotFound) {
+			return fmt.Errorf("failed to look up Discussion category form for slug %v: %v", discussionSlug, err)
+		}
 	}
 
 	var discussionTitle string
@@ -149,6 +151,22 @@ func handleCreate(c *cli.Context) error {
 	}
 
 	var discussionBody string
+
+	if len(tpl.Body) == 0 {
+		pr := survey.Editor{
+			Message:  "Body",
+			FileName: "*.md",
+		}
+
+		var result string
+		err = survey.AskOne(&pr, &result, survey.WithValidator(survey.Required))
+		if err != nil {
+			return err
+		}
+
+		discussionBody += result
+	}
+
 	for i, item := range tpl.Body {
 		q, label, askOpts, err := BodyItemToPromptAndOpts(item)
 		if err != nil {

@@ -12,7 +12,6 @@ There are a number of other known issues, gaps and features noted in the [this r
 
 A number of key callouts:
 
-- This does not ([yet](https://github.com/jamietanna/gh-discussion/issues/2)) support creating a Discussion if you do not have Discussion category forms set up
 - This does not (yet) support GitHub Enterprise
 
 ## Installation
